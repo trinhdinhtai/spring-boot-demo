@@ -1,0 +1,18 @@
+server:
+  port: 8081
+
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: spring-boot-app
+            client-secret: <dán-client-secret-vừa-copy>
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/keycloak"
+            scope: openid,profile,email,roles
+        provider:
+          keycloak:
+            issuer-uri: http://localhost:8080/realms/myapp
+            user-name-attribute: preferred_username
