@@ -1,0 +1,12 @@
+opencollection: 1.0.0
+info:
+  name: "SpringBootDemo"
+  type: workspace
+
+collections:
+  - name: "KeycloakAuth"
+    path: "collections/KeycloakAuth"
+
+specs:
+
+docs: ''

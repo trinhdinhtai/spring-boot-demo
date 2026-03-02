@@ -1,5 +1,5 @@
 {
-    "realm": "chopper-realm",
+    "realm": "chopper",
     "enabled": true,
     "registrationAllowed": true,
     "registrationEmailAsUsername": false,

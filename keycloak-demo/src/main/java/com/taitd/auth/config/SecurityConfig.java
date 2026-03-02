@@ -1,24 +1,19 @@
 package com.taitd.auth.config;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -26,58 +21,48 @@ import java.util.stream.Collectors;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity(prePostEnabled = true)
-@RequiredArgsConstructor
+@EnableMethodSecurity
 public class SecurityConfig {
 
-    @Value("${app.cors.origins:http://localhost:3000}")
-    private String corsOrigins;
+    @Value("${app.cors.allowed-origins}")
+    private String allowedOrigins;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
-            .sessionManagement(session ->
+            .sessionManagement(session -> 
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // Public endpoints
-                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
-                .requestMatchers("/v3/api-docs/**", "/swagger-ui/**").permitAll()
-                // All other endpoints require authentication
+                .requestMatchers("/api/public/**").permitAll()
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .oauth2ResourceServer(oauth2 -> oauth2
                 .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
             );
-
+        
         return http.build();
     }
 
+    /**
+     * Converter để extract roles từ JWT token của Keycloak.
+     * Keycloak lưu realm roles trong claim "roles" (sau khi ta tạo mapper).
+     */
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(new KeycloakRolesConverter());
-        return converter;
-    }
-
-    /**
-     * Converts Keycloak JWT roles to Spring Security GrantedAuthorities.
-     * Keycloak puts realm roles in the "roles" claim (configured in realm).
-     */
-    static class KeycloakRolesConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
-        @Override
-        public Collection<GrantedAuthority> convert(Jwt jwt) {
-            // Extract realm roles from "roles" claim (mapped in Keycloak)
+        converter.setJwtGrantedAuthoritiesConverter(jwt -> {
+            // Lấy roles từ claim "roles" (mapper ta đã tạo trong Keycloak)
             List<String> roles = jwt.getClaimAsStringList("roles");
 
             if (roles == null || roles.isEmpty()) {
-                // Fallback: try realm_access.roles (default Keycloak structure)
+                // Fallback: thử lấy từ realm_access.roles (format mặc định của Keycloak)
                 Map<String, Object> realmAccess = jwt.getClaimAsMap("realm_access");
                 if (realmAccess != null && realmAccess.containsKey("roles")) {
                     Object rolesObj = realmAccess.get("roles");
-                    if (rolesObj instanceof List<?>) {
-                        List<?> rawRoles = (List<?>) rolesObj;
+                    if (rolesObj instanceof Collection<?> rawRoles) {
                         roles = rawRoles.stream()
                                 .filter(String.class::isInstance)
                                 .map(String.class::cast)
@@ -89,23 +74,20 @@ public class SecurityConfig {
             if (roles == null) return List.of();
 
             return roles.stream()
-                .filter(role -> !role.startsWith("default-roles"))
-                .map(role -> new SimpleGrantedAuthority(
-                    role.startsWith("ROLE_") ? role : "ROLE_" + role.toUpperCase()))
+                .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
                 .collect(Collectors.toList());
-        }
+        });
+        return converter;
     }
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(Arrays.asList(corsOrigins.split(",")));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        config.setAllowedOrigins(List.of(allowedOrigins));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
-        config.setExposedHeaders(List.of("Authorization", "X-Total-Count"));
         config.setAllowCredentials(true);
-        config.setMaxAge(3600L);
-
+        
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
