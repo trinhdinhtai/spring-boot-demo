@@ -16,3 +16,6 @@ spring:
           keycloak:
             issuer-uri: http://localhost:8080/realms/myapp
             user-name-attribute: preferred_username
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8080/realms/myapp
