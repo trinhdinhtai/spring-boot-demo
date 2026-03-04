@@ -1,9 +1,21 @@
 server:
-  port: 8081
+  port: 8080
 
 spring:
   security:
     oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: nuxt-frontend
+            client-secret: 1234567890
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - openid
+              - profile
+              - email
+              - roles
       resourceserver:
         jwt:
           # Keycloak tự động expose JWKS endpoint

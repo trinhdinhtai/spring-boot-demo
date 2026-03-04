@@ -11,7 +11,7 @@ services:
       # Đặt file realm JSON export sẵn trong thư mục ./realm-export (ví dụ: my-realm.json)
       - ./realm-export:/opt/keycloak/data/import
     ports:
-      - "8080:8080"
+      - "8180:8080"
     command: start-dev --import-realm
 
 networks:

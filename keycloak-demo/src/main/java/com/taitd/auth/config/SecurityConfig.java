@@ -1,93 +1,96 @@
 package com.taitd.auth.config;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.Collection;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity
+@RequiredArgsConstructor
 public class SecurityConfig {
 
-    @Value("${app.cors.allowed-origins}")
-    private String allowedOrigins;
+    private final ClientRegistrationRepository clientRegistrationRepository;
+
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
+
+    @Value("${app.post-logout-redirect}")
+    private String postLogoutRedirect;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
+        // CSRF: dùng CookieCsrfTokenRepository để Nuxt đọc được X-XSRF-TOKEN cookie
+        // (không phải HttpOnly) và gửi lại qua header
+        CsrfTokenRequestAttributeHandler requestHandler = new CsrfTokenRequestAttributeHandler();
+        requestHandler.setCsrfRequestAttributeName(null); // defer loading
+
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            .csrf(csrf -> csrf.disable())
-            .sessionManagement(session -> 
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .csrf(csrf -> csrf
+                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .csrfTokenRequestHandler(requestHandler)
+                // Bỏ qua CSRF cho callback OAuth2 (GET request từ Keycloak)
+                .ignoringRequestMatchers("/login/oauth2/**")
+            )
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/public/**").permitAll()
-                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers(
+                    "/actuator/health",
+                    "/bff/auth/status",
+                    "/error"
+                ).permitAll()
                 .anyRequest().authenticated()
             )
-            .oauth2ResourceServer(oauth2 -> oauth2
-                .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
+            .exceptionHandling(ex -> ex
+                // Trả 401 thay vì redirect HTML khi gọi từ Nuxt (API call)
+                .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
+            )
+            .oauth2Login(oauth2 -> oauth2
+                .defaultSuccessUrl(System.getProperty("app.post-login-redirect",
+                    "http://localhost:3000/dashboard"), true)
+                .failureUrl(frontendUrl + "/login?error=true")
+            )
+            .logout(logout -> logout
+                .logoutUrl("/bff/auth/logout")
+                .logoutSuccessHandler(oidcLogoutSuccessHandler())
+                .invalidateHttpSession(true)
+                .deleteCookies("BFF_SESSION")
             );
-        
+
         return http.build();
     }
 
-    /**
-     * Converter để extract roles từ JWT token của Keycloak.
-     * Keycloak lưu realm roles trong claim "roles" (sau khi ta tạo mapper).
-     */
-    @Bean
-    public JwtAuthenticationConverter jwtAuthenticationConverter() {
-        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(jwt -> {
-            // Lấy roles từ claim "roles" (mapper ta đã tạo trong Keycloak)
-            List<String> roles = jwt.getClaimAsStringList("roles");
-
-            if (roles == null || roles.isEmpty()) {
-                // Fallback: thử lấy từ realm_access.roles (format mặc định của Keycloak)
-                Map<String, Object> realmAccess = jwt.getClaimAsMap("realm_access");
-                if (realmAccess != null && realmAccess.containsKey("roles")) {
-                    Object rolesObj = realmAccess.get("roles");
-                    if (rolesObj instanceof Collection<?> rawRoles) {
-                        roles = rawRoles.stream()
-                                .filter(String.class::isInstance)
-                                .map(String.class::cast)
-                                .collect(Collectors.toList());
-                    }
-                }
-            }
-
-            if (roles == null) return List.of();
-
-            return roles.stream()
-                .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
-                .collect(Collectors.toList());
-        });
-        return converter;
+    private OidcClientInitiatedLogoutSuccessHandler oidcLogoutSuccessHandler() {
+        OidcClientInitiatedLogoutSuccessHandler handler =
+            new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
+        handler.setPostLogoutRedirectUri(postLogoutRedirect);
+        return handler;
     }
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of(allowedOrigins));
+        config.setAllowedOrigins(List.of(frontendUrl));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(true);
-        
+        config.setAllowCredentials(true); // Bắt buộc để gửi cookie
+        config.setMaxAge(3600L);
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
