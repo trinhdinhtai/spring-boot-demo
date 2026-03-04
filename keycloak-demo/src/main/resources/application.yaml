@@ -7,6 +7,7 @@ spring:
       client:
         registration:
           keycloak:
+            provider: keycloak
             client-id: nuxt-frontend
             client-secret: 1234567890
             authorization-grant-type: authorization_code
@@ -16,12 +17,25 @@ spring:
               - profile
               - email
               - roles
+        provider:
+          keycloak:
+            issuer-uri: http://localhost:8180/realms/chopper
+            authorization-uri: http://localhost:8180/realms/chopper/protocol/openid-connect/auth
+            token-uri: http://localhost:8180/realms/chopper/protocol/openid-connect/token
+            jwk-set-uri: http://localhost:8180/realms/chopper/protocol/openid-connect/certs
+            user-info-uri: http://localhost:8180/realms/chopper/protocol/openid-connect/userinfo
+            user-name-attribute: preferred_username
       resourceserver:
         jwt:
-          # Keycloak tự động expose JWKS endpoint
-          jwk-set-uri: http://localhost:8080/realms/myapp/protocol/openid-connect/certs
-          issuer-uri: http://localhost:8080/realms/myapp
+          issuer-uri: http://localhost:8180/realms/chopper
+          jwk-set-uri: http://localhost:8180/realms/chopper/protocol/openid-connect/certs
 
 app:
-  cors:
-    allowed-origins: http://localhost:3000
+  frontend-url: http://localhost:3000
+  post-login-redirect: http://localhost:3000/dashboard
+  post-logout-redirect: http://localhost:3000
+
+logging:
+  level:
+    org.springframework.security: DEBUG   # Bỏ ở production
+    com.taitd.auth: DEBUG

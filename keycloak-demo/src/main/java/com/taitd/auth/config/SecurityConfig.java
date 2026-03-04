@@ -48,11 +48,13 @@ public class SecurityConfig {
                 // Bỏ qua CSRF cho callback OAuth2 (GET request từ Keycloak)
                 .ignoringRequestMatchers("/login/oauth2/**")
             )
+            // Cho phép truy cập các endpoint public
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
                     "/actuator/health",
                     "/bff/auth/status",
-                    "/error"
+                    "/error",
+                    "/api/public/health" 
                 ).permitAll()
                 .anyRequest().authenticated()
             )
